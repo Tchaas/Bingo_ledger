@@ -1,0 +1,172 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  GCP_PROJECT_ID: tchaas-ledger
+  GCP_REGION: us-central1
+  BACKEND_SERVICE_NAME: tchaas-ledger-api
+  FRONTEND_BUCKET: tchaas-ledger-frontend
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend to Cloud Run
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Configure Docker for GCP
+      run: gcloud auth configure-docker
+
+    - name: Build Docker image
+      working-directory: ./backend
+      run: |
+        docker build -t gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.BACKEND_SERVICE_NAME }}:${{ github.sha }} .
+        docker tag gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.BACKEND_SERVICE_NAME }}:${{ github.sha }} \
+                   gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.BACKEND_SERVICE_NAME }}:latest
+
+    - name: Push Docker image to GCR
+      run: |
+        docker push gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.BACKEND_SERVICE_NAME }}:${{ github.sha }}
+        docker push gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.BACKEND_SERVICE_NAME }}:latest
+
+    - name: Run database migrations
+      run: |
+        gcloud run jobs create migration-${{ github.sha }} \
+          --image gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.BACKEND_SERVICE_NAME }}:${{ github.sha }} \
+          --region ${{ env.GCP_REGION }} \
+          --set-env-vars DATABASE_URL=${{ secrets.DATABASE_URL }} \
+          --set-env-vars FLASK_APP=run.py \
+          --command flask \
+          --args db,upgrade || echo "Migration job creation failed, may already exist"
+
+        gcloud run jobs execute migration-${{ github.sha }} --region ${{ env.GCP_REGION }} --wait
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy ${{ env.BACKEND_SERVICE_NAME }} \
+          --image gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.BACKEND_SERVICE_NAME }}:${{ github.sha }} \
+          --platform managed \
+          --region ${{ env.GCP_REGION }} \
+          --allow-unauthenticated \
+          --set-env-vars "GCP_PROJECT_ID=${{ env.GCP_PROJECT_ID }}" \
+          --set-env-vars "ENABLE_GCP_MONITORING=true" \
+          --set-env-vars "FLASK_ENV=production" \
+          --set-secrets "DATABASE_URL=DATABASE_URL:latest" \
+          --set-secrets "SECRET_KEY=SECRET_KEY:latest" \
+          --add-cloudsql-instances ${{ secrets.CLOUD_SQL_INSTANCE }} \
+          --min-instances 0 \
+          --max-instances 10 \
+          --cpu 1 \
+          --memory 512Mi \
+          --timeout 300
+
+    - name: Get Cloud Run URL
+      id: deploy
+      run: |
+        SERVICE_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
+          --region ${{ env.GCP_REGION }} \
+          --format 'value(status.url)')
+        echo "Backend deployed to: $SERVICE_URL"
+        echo "url=$SERVICE_URL" >> $GITHUB_OUTPUT
+
+    - name: Test deployment
+      run: |
+        sleep 10
+        curl -f ${{ steps.deploy.outputs.url }}/health || exit 1
+        echo "Health check passed!"
+
+  deploy-frontend:
+    name: Deploy Frontend to Cloud Storage
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: deploy-backend
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Build production bundle
+      working-directory: ./frontend
+      env:
+        VITE_API_URL: ${{ secrets.BACKEND_API_URL }}
+      run: npm run build
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Deploy to Cloud Storage
+      working-directory: ./frontend
+      run: |
+        gsutil -m rsync -r -d dist/ gs://${{ env.FRONTEND_BUCKET }}/
+        gsutil -m setmeta -h "Cache-Control:public, max-age=31536000" gs://${{ env.FRONTEND_BUCKET }}/**/*.js
+        gsutil -m setmeta -h "Cache-Control:public, max-age=31536000" gs://${{ env.FRONTEND_BUCKET }}/**/*.css
+        gsutil -m setmeta -h "Cache-Control:no-cache" gs://${{ env.FRONTEND_BUCKET }}/index.html
+
+    - name: Invalidate CDN cache (if using Cloud CDN)
+      run: |
+        echo "If using Cloud CDN, add cache invalidation here"
+        # gcloud compute url-maps invalidate-cdn-cache [URL_MAP] --path "/*"
+
+    - name: Deployment summary
+      run: |
+        echo "Frontend deployed to: https://storage.googleapis.com/${{ env.FRONTEND_BUCKET }}/index.html"
+        echo "Or custom domain if configured"
+
+  notify:
+    name: Send Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend]
+    if: always()
+
+    steps:
+    - name: Deployment Status
+      run: |
+        echo "Backend deployment: ${{ needs.deploy-backend.result }}"
+        echo "Frontend deployment: ${{ needs.deploy-frontend.result }}"
+
+        if [ "${{ needs.deploy-backend.result }}" == "success" ] && [ "${{ needs.deploy-frontend.result }}" == "success" ]; then
+          echo "✅ Deployment successful!"
+        else
+          echo "❌ Deployment failed!"
+          exit 1
+        fi

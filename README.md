@@ -1,5 +1,9 @@
 # Tchaas Ledger 990 - Nonprofit Financial Management Platform
 
+[![Backend CI](https://github.com/tchaas/tchaasledger/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/tchaas/tchaasledger/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/tchaas/tchaasledger/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/tchaas/tchaasledger/actions/workflows/frontend-ci.yml)
+[![Deploy](https://github.com/tchaas/tchaasledger/actions/workflows/deploy.yml/badge.svg)](https://github.com/tchaas/tchaasledger/actions/workflows/deploy.yml)
+
 A comprehensive platform for nonprofit organizations to manage their financial ledger and generate IRS Form 990 tax returns, with integrated monitoring and analytics.
 
 > **Note**: This project is based on the original [Tchaas Ledger Figma design](https://www.figma.com/design/7BRAKcxNFqyjws9gB1BNb2/Tchaas-Ledger) and has been enhanced with a full-stack implementation including backend API and monitoring.
