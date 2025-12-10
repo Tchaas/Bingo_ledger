@@ -10,8 +10,8 @@ SQLAlchemy==2.0.45
 
 # Monitoring
 prometheus-client==0.21.0
-grpcio==1.68.1
-grpcio-status==1.68.1
+grpcio==1.62.3
+grpcio-status==1.62.3
 google-cloud-monitoring==2.22.0
 
 # Environment & Configuration
