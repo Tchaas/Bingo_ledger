@@ -2,6 +2,8 @@
 
 A comprehensive platform for nonprofit organizations to manage their financial ledger and generate IRS Form 990 tax returns, with integrated monitoring and analytics.
 
+> **Note**: This project is based on the original [Tchaas Ledger Figma design](https://www.figma.com/design/7BRAKcxNFqyjws9gB1BNb2/Tchaas-Ledger) and has been enhanced with a full-stack implementation including backend API and monitoring.
+
 ## 🎯 Project Overview
 
 This project combines:
@@ -56,9 +58,10 @@ python run.py
 
 ## 📚 Documentation
 
-- [Project Organization Plan](../PROJECT_ORGANIZATION_PLAN.md) - Detailed project structure and integration plan
+- [GET_STARTED.md](GET_STARTED.md) - Quick start guide for new developers
+- [PROJECT_STATUS.md](PROJECT_STATUS.md) - Current status and next steps
+- [FILE_INVENTORY.md](FILE_INVENTORY.md) - Complete file listing
 - [Monitoring Setup Guide](docs/monitoring/00_MONITORING_SETUP_GUIDE.md) - How to set up monitoring
-- [Cursor Handoff Guide](docs/monitoring/01_CURSOR_HANDOFF_START_HERE.md) - Complete context for AI assistance
 - [API Documentation](docs/api/API_SPEC.md) - Backend API specification
 
 ## ✨ Features
@@ -182,7 +185,7 @@ Tchaas Alexander-Wright
 
 ## 🙏 Acknowledgments
 
-- Original UI design from Figma
+- Original UI design from [Figma](https://www.figma.com/design/7BRAKcxNFqyjws9gB1BNb2/Tchaas-Ledger)
 - Monitoring package integration
 - Form 990 category definitions based on IRS specifications
 
