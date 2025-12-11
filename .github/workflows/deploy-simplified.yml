@@ -128,7 +128,7 @@ jobs:
     - name: Deploy to Cloud Storage
       working-directory: ./frontend
       run: |
-        gsutil -m rsync -r -d dist/ gs://${{ env.FRONTEND_BUCKET }}/
+        gsutil -m rsync -r -d build/ gs://${{ env.FRONTEND_BUCKET }}/
         gsutil -m setmeta -h "Cache-Control:public, max-age=31536000" gs://${{ env.FRONTEND_BUCKET }}/**/*.js
         gsutil -m setmeta -h "Cache-Control:public, max-age=31536000" gs://${{ env.FRONTEND_BUCKET }}/**/*.css
         gsutil -m setmeta -h "Cache-Control:no-cache" gs://${{ env.FRONTEND_BUCKET }}/index.html
