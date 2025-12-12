@@ -1,0 +1,11 @@
+# Test dependencies for deployment regression tests
+
+# Core testing framework
+pytest>=8.0.0
+pytest-cov>=4.1.0
+
+# YAML parsing for workflow validation
+PyYAML>=6.0
+
+# Additional utilities
+pathlib2>=2.3.7; python_version < '3.4'
