@@ -17,12 +17,14 @@ def app():
         'postgresql://postgres:postgres@localhost:5432/tchaas_ledger_test'
     )
     os.environ['SECRET_KEY'] = 'test-secret-key'
+    os.environ['JWT_SECRET_KEY'] = 'test-secret-key'
     os.environ['ENABLE_GCP_MONITORING'] = 'false'
 
     # Create app (don't pass config_name, let it use environment)
     app = create_app()
     app.config['TESTING'] = True
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+    app.config['JWT_SECRET_KEY'] = 'test-secret-key'
 
     # Create database tables
     with app.app_context():

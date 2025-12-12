@@ -59,6 +59,12 @@ def create_app(config_name=None):
         """Health check endpoint for monitoring."""
         return {'status': 'healthy', 'app': 'tchaas-ledger'}, 200
 
+    # Metrics endpoint (placeholder when monitoring is disabled)
+    @app.route('/metrics')
+    def metrics():
+        """Metrics endpoint for Prometheus."""
+        return '# Metrics endpoint\n', 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
     # Root endpoint
     @app.route('/')
     def index():
