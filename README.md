@@ -62,11 +62,27 @@ python run.py
 
 ## 📚 Documentation
 
-- [GET_STARTED.md](GET_STARTED.md) - Quick start guide for new developers
-- [PROJECT_STATUS.md](PROJECT_STATUS.md) - Current status and next steps
-- [FILE_INVENTORY.md](FILE_INVENTORY.md) - Complete file listing
-- [Monitoring Setup Guide](docs/monitoring/00_MONITORING_SETUP_GUIDE.md) - How to set up monitoring
-- [API Documentation](docs/api/API_SPEC.md) - Backend API specification
+### Getting Started
+
+- [Get Started Guide](docs/setup/GET_STARTED.md) - Quick start for new developers
+- [Setup Complete](docs/setup/SETUP_COMPLETE.md) - Initial setup checklist
+
+### Deployment
+
+- [Final Deployment Steps](docs/deployment/FINAL_DEPLOYMENT_STEPS.md) - Deploy to production
+- [Cloud SQL Setup](docs/setup/SETUP_CLOUD_SQL.md) - PostgreSQL database setup
+- [GitHub Secrets Setup](docs/setup/GITHUB_SECRETS_SETUP.md) - CI/CD secrets configuration
+- [GCP Permissions Fix](docs/deployment/FIX_GCP_PERMISSIONS.md) - Fix IAM permissions
+
+### Project Info
+
+- [Project Status](PROJECT_STATUS.md) - Current status and roadmap
+- [File Inventory](FILE_INVENTORY.md) - Complete file listing
+
+### Scripts
+
+- [scripts/run-migrations-manually.sh](scripts/run-migrations-manually.sh) - Run database migrations
+- [scripts/fix-gcp-permissions.sh](scripts/fix-gcp-permissions.sh) - Grant GCP IAM permissions
 
 ## ✨ Features
 
