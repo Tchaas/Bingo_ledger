@@ -39,21 +39,12 @@ def app():
 def db(app):
     """Provide database session that rolls back after each test."""
     with app.app_context():
-        # Begin a non-ORM transaction
-        connection = _db.engine.connect()
-        transaction = connection.begin()
-
-        # Bind session to connection
-        options = dict(bind=connection, binds={})
-        session = _db.create_scoped_session(options=options)
-        _db.session = session
-
         yield _db
-
-        # Rollback transaction
-        session.close()
-        transaction.rollback()
-        connection.close()
+        # Clean up: remove all data after each test
+        _db.session.remove()
+        for table in reversed(_db.metadata.sorted_tables):
+            _db.session.execute(table.delete())
+        _db.session.commit()
 
 
 @pytest.fixture(scope='function')
