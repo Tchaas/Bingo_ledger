@@ -65,7 +65,8 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     """Testing configuration."""
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = 'postgresql://localhost/tchaas_ledger_test'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
+        'postgresql://postgres:postgres@localhost:5432/tchaas_ledger_test'
     WTF_CSRF_ENABLED = False
 
 
