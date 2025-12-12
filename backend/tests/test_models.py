@@ -22,8 +22,8 @@ def test_organization_creation(db):
         state='CA',
         zip_code='12345'
     )
-    db.db.session.add(org)
-    db.db.session.commit()
+    db.session.add(org)
+    db.session.commit()
 
     assert org.id is not None
     assert org.ein == '12-3456789'

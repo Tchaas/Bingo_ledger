@@ -19,9 +19,10 @@ def app():
     os.environ['SECRET_KEY'] = 'test-secret-key'
     os.environ['ENABLE_GCP_MONITORING'] = 'false'
 
-    # Create app
-    app = create_app('testing')
+    # Create app (don't pass config_name, let it use environment)
+    app = create_app()
     app.config['TESTING'] = True
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
 
     # Create database tables
     with app.app_context():
