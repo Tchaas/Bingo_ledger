@@ -12,7 +12,7 @@ from app.models import (
 )
 
 
-def test_organization_creation(session):
+def test_organization_creation(db):
     """Test creating an organization."""
     org = Organization(
         ein='12-3456789',
@@ -22,15 +22,15 @@ def test_organization_creation(session):
         state='CA',
         zip_code='12345'
     )
-    session.add(org)
-    session.commit()
+    db.db.session.add(org)
+    db.db.session.commit()
 
     assert org.id is not None
     assert org.ein == '12-3456789'
     assert org.name == 'Test Organization'
 
 
-def test_user_creation(session, test_org):
+def test_user_creation(db, test_org):
     """Test creating a user."""
     from app.auth.utils import hash_password
 
@@ -40,8 +40,8 @@ def test_user_creation(session, test_org):
         password_hash=hash_password('TestPass123'),
         organization_id=test_org.id
     )
-    session.add(user)
-    session.commit()
+    db.session.add(user)
+    db.session.commit()
 
     assert user.id is not None
     assert user.email == 'testuser@example.com'
@@ -49,7 +49,7 @@ def test_user_creation(session, test_org):
     assert user.organization_id == test_org.id
 
 
-def test_user_password_methods(session, test_org):
+def test_user_password_methods(db, test_org):
     """Test user password helper methods."""
     user = User(
         email='test@example.com',
@@ -68,7 +68,7 @@ def test_user_password_methods(session, test_org):
     assert user.check_password('WrongPassword') is False
 
 
-def test_account_creation(session, test_org):
+def test_account_creation(db, test_org):
     """Test creating an account."""
     account = Account(
         organization_id=test_org.id,
@@ -77,8 +77,8 @@ def test_account_creation(session, test_org):
         account_type='asset',
         balance=0
     )
-    session.add(account)
-    session.commit()
+    db.session.add(account)
+    db.session.commit()
 
     assert account.id is not None
     assert account.code == '1000'
@@ -86,7 +86,7 @@ def test_account_creation(session, test_org):
     assert account.account_type == 'asset'
 
 
-def test_transaction_creation(session, test_org):
+def test_transaction_creation(db, test_org):
     """Test creating a transaction."""
     # Create account first
     account = Account(
@@ -95,8 +95,8 @@ def test_transaction_creation(session, test_org):
         name='Cash',
         account_type='asset'
     )
-    session.add(account)
-    session.commit()
+    db.session.add(account)
+    db.session.commit()
 
     # Create transaction
     transaction = Transaction(
@@ -108,8 +108,8 @@ def test_transaction_creation(session, test_org):
         debit=100.00,
         status='complete'
     )
-    session.add(transaction)
-    session.commit()
+    db.session.add(transaction)
+    db.session.commit()
 
     assert transaction.id is not None
     assert transaction.transaction_id == 'TXN001'
@@ -117,7 +117,7 @@ def test_transaction_creation(session, test_org):
     assert float(transaction.debit) == 100.00
 
 
-def test_form990_data_creation(session, test_org):
+def test_form990_data_creation(db, test_org):
     """Test creating Form 990 data."""
     form_data = Form990Data(
         organization_id=test_org.id,
@@ -125,8 +125,8 @@ def test_form990_data_creation(session, test_org):
         data={'revenue': 100000, 'expenses': 50000},
         status='draft'
     )
-    session.add(form_data)
-    session.commit()
+    db.session.add(form_data)
+    db.session.commit()
 
     assert form_data.id is not None
     assert form_data.tax_year == 2024
@@ -134,7 +134,7 @@ def test_form990_data_creation(session, test_org):
     assert form_data.status == 'draft'
 
 
-def test_organization_to_dict(session):
+def test_organization_to_dict(db):
     """Test organization serialization."""
     org = Organization(
         ein='12-3456789',
@@ -144,8 +144,8 @@ def test_organization_to_dict(session):
         state='CA',
         zip_code='12345'
     )
-    session.add(org)
-    session.commit()
+    db.session.add(org)
+    db.session.commit()
 
     org_dict = org.to_dict()
 
@@ -154,7 +154,7 @@ def test_organization_to_dict(session):
     assert 'id' in org_dict
 
 
-def test_user_to_dict(session, test_org):
+def test_user_to_dict(db, test_org):
     """Test user serialization."""
     from app.auth.utils import hash_password
 
@@ -164,8 +164,8 @@ def test_user_to_dict(session, test_org):
         password_hash=hash_password('TestPass123'),
         organization_id=test_org.id
     )
-    session.add(user)
-    session.commit()
+    db.session.add(user)
+    db.session.commit()
 
     user_dict = user.to_dict()
 
@@ -175,7 +175,7 @@ def test_user_to_dict(session, test_org):
     assert 'id' in user_dict
 
 
-def test_account_to_dict(session, test_org):
+def test_account_to_dict(db, test_org):
     """Test account serialization."""
     account = Account(
         organization_id=test_org.id,
@@ -184,8 +184,8 @@ def test_account_to_dict(session, test_org):
         account_type='asset',
         balance=500.50
     )
-    session.add(account)
-    session.commit()
+    db.session.add(account)
+    db.session.commit()
 
     account_dict = account.to_dict()
 
@@ -195,7 +195,7 @@ def test_account_to_dict(session, test_org):
     assert account_dict['balance'] == 500.50
 
 
-def test_transaction_to_dict(session, test_org):
+def test_transaction_to_dict(db, test_org):
     """Test transaction serialization."""
     account = Account(
         organization_id=test_org.id,
@@ -203,8 +203,8 @@ def test_transaction_to_dict(session, test_org):
         name='Cash',
         account_type='asset'
     )
-    session.add(account)
-    session.commit()
+    db.session.add(account)
+    db.session.commit()
 
     transaction = Transaction(
         organization_id=test_org.id,
@@ -214,8 +214,8 @@ def test_transaction_to_dict(session, test_org):
         description='Test',
         debit=100.00
     )
-    session.add(transaction)
-    session.commit()
+    db.session.add(transaction)
+    db.session.commit()
 
     txn_dict = transaction.to_dict()
 
@@ -225,7 +225,7 @@ def test_transaction_to_dict(session, test_org):
     assert 'date' in txn_dict
 
 
-def test_organization_relationships(session):
+def test_organization_relationships(db):
     """Test organization relationships with users and accounts."""
     org = Organization(
         ein='12-3456789',
@@ -235,8 +235,8 @@ def test_organization_relationships(session):
         state='CA',
         zip_code='12345'
     )
-    session.add(org)
-    session.commit()
+    db.session.add(org)
+    db.session.commit()
 
     # Add user
     from app.auth.utils import hash_password
@@ -246,7 +246,7 @@ def test_organization_relationships(session):
         password_hash=hash_password('TestPass123'),
         organization_id=org.id
     )
-    session.add(user)
+    db.session.add(user)
 
     # Add account
     account = Account(
@@ -255,11 +255,11 @@ def test_organization_relationships(session):
         name='Cash',
         account_type='asset'
     )
-    session.add(account)
-    session.commit()
+    db.session.add(account)
+    db.session.commit()
 
     # Refresh to load relationships
-    session.refresh(org)
+    db.session.refresh(org)
 
     assert len(org.users) == 1
     assert org.users[0].email == 'test@example.com'

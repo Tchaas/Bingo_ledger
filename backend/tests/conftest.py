@@ -3,8 +3,7 @@ Pytest configuration and fixtures for tests.
 """
 import os
 import pytest
-from app import create_app
-from app.models import db
+from app import create_app, db as _db
 
 
 @pytest.fixture(scope='session')
@@ -21,51 +20,49 @@ def app():
     os.environ['ENABLE_GCP_MONITORING'] = 'false'
 
     # Create app
-    app = create_app()
+    app = create_app('testing')
     app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
 
-    return app
+    # Create database tables
+    with app.app_context():
+        _db.create_all()
+
+    yield app
+
+    # Drop all tables after tests
+    with app.app_context():
+        _db.drop_all()
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='function')
+def db(app):
+    """Provide database session that rolls back after each test."""
+    with app.app_context():
+        # Begin a non-ORM transaction
+        connection = _db.engine.connect()
+        transaction = connection.begin()
+
+        # Bind session to connection
+        options = dict(bind=connection, binds={})
+        session = _db.create_scoped_session(options=options)
+        _db.session = session
+
+        yield _db
+
+        # Rollback transaction
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+@pytest.fixture(scope='function')
 def client(app):
     """Create test client."""
     return app.test_client()
 
 
-@pytest.fixture(scope='session')
-def _db(app):
-    """Create database for testing."""
-    with app.app_context():
-        db.create_all()
-        yield db
-        db.session.remove()
-        db.drop_all()
-
-
-@pytest.fixture(scope='function')
-def session(_db):
-    """Create a new database session for a test."""
-    connection = _db.engine.connect()
-    transaction = connection.begin()
-
-    # Bind session to connection
-    session = _db.create_scoped_session(
-        options={"bind": connection, "binds": {}}
-    )
-    _db.session = session
-
-    yield session
-
-    # Rollback and cleanup
-    transaction.rollback()
-    connection.close()
-    session.remove()
-
-
 @pytest.fixture
-def test_org(session):
+def test_org(app, db):
     """Create a test organization."""
     from app.models import Organization
 
@@ -77,13 +74,13 @@ def test_org(session):
         state='CA',
         zip_code='12345'
     )
-    session.add(org)
-    session.commit()
+    db.session.add(org)
+    db.session.commit()
     return org
 
 
 @pytest.fixture
-def test_user(session, test_org):
+def test_user(app, db, test_org):
     """Create a test user."""
     from app.models import User
     from app.auth.utils import hash_password
@@ -94,8 +91,8 @@ def test_user(session, test_org):
         password_hash=hash_password('TestPass123'),
         organization_id=test_org.id
     )
-    session.add(user)
-    session.commit()
+    db.session.add(user)
+    db.session.commit()
     return user
 
 
