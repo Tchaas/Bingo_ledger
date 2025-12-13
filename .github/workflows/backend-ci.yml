@@ -72,6 +72,7 @@ jobs:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tchaas_ledger_test
         FLASK_ENV: testing
         SECRET_KEY: test-secret-key
+        JWT_SECRET_KEY: test-secret-key
         GCP_PROJECT_ID: test-project
         ENABLE_GCP_MONITORING: false
       run: |
