@@ -146,6 +146,8 @@ class Transaction(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'organization_id': self.organization_id,
+            'account_id': self.account_id,
             'transaction_id': self.transaction_id,
             'date': self.date.isoformat() if self.date else None,
             'description': self.description,
