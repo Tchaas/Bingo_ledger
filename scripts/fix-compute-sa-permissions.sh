@@ -2,6 +2,7 @@
 
 # Fix: Grant compute service account access to Secret Manager
 # The Cloud Run Job uses the default compute service account
+set -e
 
 PROJECT_ID="tchaas-ledger"
 PROJECT_NUMBER="1057248865206"
