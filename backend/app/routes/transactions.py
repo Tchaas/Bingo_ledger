@@ -8,9 +8,11 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import or_
 
 from app import db
+from app.auth.decorators import organization_required
 from app.models import Transaction, Account
 
 transactions_bp = Blueprint('transactions', __name__)
@@ -48,11 +50,11 @@ def _parse_additional_fields(value):
 
 
 def _resolve_account(account_id, organization_id):
+    if not organization_id:
+        return None
     if account_id:
-        return Account.query.get(account_id)
-    if organization_id:
-        return Account.query.filter_by(organization_id=organization_id).first()
-    return Account.query.first()
+        return Account.query.filter_by(id=account_id, organization_id=organization_id).first()
+    return Account.query.filter_by(organization_id=organization_id).first()
 
 
 def _generate_transaction_id(organization_id):
@@ -88,11 +90,14 @@ def _calculate_running_balances(query):
 
 
 @transactions_bp.route('/', methods=['GET'])
+@jwt_required()
+@organization_required
 def list_transactions():
     """List all transactions with optional filtering."""
-    query = Transaction.query
+    identity = get_jwt_identity()
+    organization_id = identity.get('organization_id')
+    query = Transaction.query.filter(Transaction.organization_id == organization_id)
 
-    organization_id = request.args.get('organization_id', type=int)
     account_id = request.args.get('account_id', type=int)
     category_id = request.args.get('category_id')
     status = request.args.get('status')
@@ -103,8 +108,6 @@ def list_transactions():
     end_date = _parse_date(request.args.get('end_date'))
     transaction_type = request.args.get('type')
 
-    if organization_id:
-        query = query.filter(Transaction.organization_id == organization_id)
     if account_id:
         query = query.filter(Transaction.account_id == account_id)
     if category_id:
@@ -170,11 +173,16 @@ def list_transactions():
 
 
 @transactions_bp.route('/', methods=['POST'])
+@jwt_required()
+@organization_required
 def create_transaction():
     """Create a new transaction."""
     payload = request.get_json(silent=True) or {}
 
-    account = _resolve_account(payload.get('account_id'), payload.get('organization_id'))
+    identity = get_jwt_identity()
+    organization_id = identity.get('organization_id')
+
+    account = _resolve_account(payload.get('account_id'), organization_id)
     if not account:
         return jsonify({'message': 'Account not found'}), 400
 
@@ -185,7 +193,7 @@ def create_transaction():
     transaction_id = payload.get('transaction_id') or _generate_transaction_id(account.organization_id)
 
     transaction = Transaction(
-        organization_id=account.organization_id,
+        organization_id=organization_id,
         account_id=account.id,
         transaction_id=transaction_id,
         date=transaction_date,
@@ -206,29 +214,43 @@ def create_transaction():
 
 
 @transactions_bp.route('/<int:transaction_id>', methods=['GET'])
+@jwt_required()
+@organization_required
 def get_transaction(transaction_id):
     """Get a specific transaction."""
-    transaction = Transaction.query.get(transaction_id)
+    identity = get_jwt_identity()
+    organization_id = identity.get('organization_id')
+    transaction = Transaction.query.filter_by(
+        id=transaction_id,
+        organization_id=organization_id
+    ).first()
     if not transaction:
         return jsonify({'message': 'Transaction not found'}), 404
     return jsonify(transaction.to_dict()), 200
 
 
 @transactions_bp.route('/<int:transaction_id>', methods=['PUT'])
+@jwt_required()
+@organization_required
 def update_transaction(transaction_id):
     """Update a transaction."""
-    transaction = Transaction.query.get(transaction_id)
+    identity = get_jwt_identity()
+    organization_id = identity.get('organization_id')
+    transaction = Transaction.query.filter_by(
+        id=transaction_id,
+        organization_id=organization_id
+    ).first()
     if not transaction:
         return jsonify({'message': 'Transaction not found'}), 404
 
     payload = request.get_json(silent=True) or {}
 
     if 'account_id' in payload or 'organization_id' in payload:
-        account = _resolve_account(payload.get('account_id'), payload.get('organization_id'))
+        account = _resolve_account(payload.get('account_id'), organization_id)
         if not account:
             return jsonify({'message': 'Account not found'}), 400
         transaction.account_id = account.id
-        transaction.organization_id = account.organization_id
+        transaction.organization_id = organization_id
 
     if 'transaction_id' in payload:
         transaction.transaction_id = payload['transaction_id']
@@ -260,9 +282,16 @@ def update_transaction(transaction_id):
 
 
 @transactions_bp.route('/<int:transaction_id>', methods=['DELETE'])
+@jwt_required()
+@organization_required
 def delete_transaction(transaction_id):
     """Delete a transaction."""
-    transaction = Transaction.query.get(transaction_id)
+    identity = get_jwt_identity()
+    organization_id = identity.get('organization_id')
+    transaction = Transaction.query.filter_by(
+        id=transaction_id,
+        organization_id=organization_id
+    ).first()
     if not transaction:
         return jsonify({'message': 'Transaction not found'}), 404
 
@@ -273,11 +302,16 @@ def delete_transaction(transaction_id):
 
 
 @transactions_bp.route('/import-csv', methods=['POST'])
+@jwt_required()
+@organization_required
 def import_csv():
     """Import transactions from CSV file."""
     file = request.files.get('file')
     if not file:
         return jsonify({'message': 'CSV file is required'}), 400
+
+    identity = get_jwt_identity()
+    organization_id = identity.get('organization_id')
 
     try:
         content = file.stream.read().decode('utf-8')
@@ -288,8 +322,10 @@ def import_csv():
     rows = []
     errors = []
     for index, row in enumerate(reader, start=1):
-        account = _resolve_account(row.get('account_id') or request.form.get('account_id'),
-                                   row.get('organization_id') or request.form.get('organization_id'))
+        account = _resolve_account(
+            row.get('account_id') or request.form.get('account_id'),
+            organization_id
+        )
         if not account:
             errors.append({'row': index, 'message': 'Account not found'})
             continue
@@ -301,7 +337,7 @@ def import_csv():
 
         transaction_id = row.get('transaction_id') or _generate_transaction_id(account.organization_id)
         rows.append({
-            'organization_id': account.organization_id,
+            'organization_id': organization_id,
             'account_id': account.id,
             'transaction_id': transaction_id,
             'date': transaction_date,

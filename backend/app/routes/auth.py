@@ -18,8 +18,6 @@ from flask_jwt_extended import (
 from app import db
 from app.models import User, Organization
 from app.auth.utils import (
-    hash_password,
-    check_password,
     generate_tokens,
     validate_email,
     validate_password_strength
@@ -31,6 +29,7 @@ auth_bp = Blueprint('auth', __name__)
 
 
 @auth_bp.route('/register', methods=['POST'])
+@auth_bp.route('/signup', methods=['POST'])
 def register():
     """
     Register a new user account.
@@ -91,9 +90,9 @@ def register():
         user = User(
             email=email.lower(),
             name=name,
-            password_hash=hash_password(password),
             organization_id=organization_id
         )
+        user.set_password(password)
 
         db.session.add(user)
         db.session.commit()
@@ -147,7 +146,7 @@ def login():
         # Find user by email
         user = User.query.filter_by(email=email.lower()).first()
 
-        if not user or not check_password(user.password_hash, password):
+        if not user or not user.check_password(password):
             return jsonify({'error': 'Invalid email or password'}), 401
 
         # Generate tokens
@@ -320,7 +319,7 @@ def change_password():
             }), 400
 
         # Verify current password
-        if not check_password(user.password_hash, current_password):
+        if not user.check_password(current_password):
             return jsonify({'error': 'Current password is incorrect'}), 401
 
         # Validate new password strength
@@ -329,7 +328,7 @@ def change_password():
             return jsonify({'error': error_msg}), 400
 
         # Update password
-        user.password_hash = hash_password(new_password)
+        user.set_password(new_password)
         user.updated_at = datetime.utcnow()
         db.session.commit()
 
