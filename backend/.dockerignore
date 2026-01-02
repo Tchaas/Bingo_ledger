@@ -1,18 +1,26 @@
 # Python
-__pycache__
+__pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 *$py.class
 *.so
 .Python
 venv/
+.venv/
 env/
 ENV/
 
 # Testing
 .pytest_cache/
+*.pytest_cache/
 .coverage
-htmlcov/
 *.coverage.*
+htmlcov/
+
+# Type checking/linting caches
+.mypy_cache/
+.ruff_cache/
 
 # IDEs
 .vscode/
@@ -26,7 +34,7 @@ htmlcov/
 Thumbs.db
 
 # Git
-.git
+.git/
 .gitignore
 
 # Documentation
@@ -34,9 +42,22 @@ Thumbs.db
 docs/
 
 # Environment
+.env
+.env.*
 .env.local
 .env.*.local
+
+# Build artifacts
+dist/
+build/
+
+# Dependency directories
+node_modules/
 
 # Temporary files
 *.log
 *.tmp
+
+# App runtime
+instance/
+*.sqlite
