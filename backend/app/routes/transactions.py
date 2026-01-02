@@ -7,11 +7,12 @@ import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
 from sqlalchemy import or_
 
 from app import db
 from app.models import Transaction, Account
+from app.validation import ValidationError, validate_transaction_payload
 
 transactions_bp = Blueprint('transactions', __name__)
 
@@ -174,13 +175,17 @@ def create_transaction():
     """Create a new transaction."""
     payload = request.get_json(silent=True) or {}
 
+    errors = validate_transaction_payload(payload, require_required_fields=True)
+    if errors:
+        raise ValidationError('Invalid transaction payload.', errors)
+
     account = _resolve_account(payload.get('account_id'), payload.get('organization_id'))
     if not account:
-        return jsonify({'message': 'Account not found'}), 400
+        raise ValidationError('Invalid account reference.', {'account_id': 'Account not found.'})
 
     transaction_date = _parse_date(payload.get('date'))
-    if not transaction_date or not payload.get('description'):
-        return jsonify({'message': 'Date and description are required'}), 400
+    if not transaction_date:
+        raise ValidationError('Invalid transaction payload.', {'date': 'Date must be in YYYY-MM-DD format.'})
 
     transaction_id = payload.get('transaction_id') or _generate_transaction_id(account.organization_id)
 
@@ -210,7 +215,7 @@ def get_transaction(transaction_id):
     """Get a specific transaction."""
     transaction = Transaction.query.get(transaction_id)
     if not transaction:
-        return jsonify({'message': 'Transaction not found'}), 404
+        abort(404, description='Transaction not found.')
     return jsonify(transaction.to_dict()), 200
 
 
@@ -219,14 +224,18 @@ def update_transaction(transaction_id):
     """Update a transaction."""
     transaction = Transaction.query.get(transaction_id)
     if not transaction:
-        return jsonify({'message': 'Transaction not found'}), 404
+        abort(404, description='Transaction not found.')
 
     payload = request.get_json(silent=True) or {}
+
+    errors = validate_transaction_payload(payload, require_required_fields=False)
+    if errors:
+        raise ValidationError('Invalid transaction payload.', errors)
 
     if 'account_id' in payload or 'organization_id' in payload:
         account = _resolve_account(payload.get('account_id'), payload.get('organization_id'))
         if not account:
-            return jsonify({'message': 'Account not found'}), 400
+            raise ValidationError('Invalid account reference.', {'account_id': 'Account not found.'})
         transaction.account_id = account.id
         transaction.organization_id = account.organization_id
 
@@ -234,9 +243,8 @@ def update_transaction(transaction_id):
         transaction.transaction_id = payload['transaction_id']
     if 'date' in payload:
         parsed_date = _parse_date(payload.get('date'))
-        if not parsed_date:
-            return jsonify({'message': 'Invalid date format'}), 400
-        transaction.date = parsed_date
+        if parsed_date:
+            transaction.date = parsed_date
     if 'description' in payload:
         transaction.description = payload.get('description')
     if 'category_id' in payload:
@@ -264,7 +272,7 @@ def delete_transaction(transaction_id):
     """Delete a transaction."""
     transaction = Transaction.query.get(transaction_id)
     if not transaction:
-        return jsonify({'message': 'Transaction not found'}), 404
+        abort(404, description='Transaction not found.')
 
     db.session.delete(transaction)
     db.session.commit()
@@ -277,12 +285,12 @@ def import_csv():
     """Import transactions from CSV file."""
     file = request.files.get('file')
     if not file:
-        return jsonify({'message': 'CSV file is required'}), 400
+        abort(400, description='CSV file is required.')
 
     try:
         content = file.stream.read().decode('utf-8')
     except UnicodeDecodeError:
-        return jsonify({'message': 'CSV file must be utf-8 encoded'}), 400
+        abort(400, description='CSV file must be utf-8 encoded.')
 
     reader = csv.DictReader(io.StringIO(content))
     rows = []
@@ -316,7 +324,7 @@ def import_csv():
         })
 
     if errors:
-        return jsonify({'message': 'CSV import failed', 'errors': errors}), 400
+        raise ValidationError('CSV import failed.', {'rows': errors})
 
     transactions = [Transaction(**row) for row in rows]
     db.session.add_all(transactions)
