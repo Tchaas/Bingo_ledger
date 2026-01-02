@@ -33,6 +33,8 @@ const getTokenStorageType = (): StorageType | null => {
   return null;
 };
 
+export const getAuthStorageType = (): StorageType | null => getTokenStorageType();
+
 export const getAccessToken = () => readFromStorage(ACCESS_TOKEN_KEY);
 
 export const getRefreshToken = () => readFromStorage(REFRESH_TOKEN_KEY);

@@ -1,18 +1,45 @@
-import { useState } from "react";
-import { authService } from "../utils/auth";
+import { useEffect, useState } from "react";
+import { authService, type User } from "../utils/auth";
+import { apiClient } from "../utils/api";
 import { Edit2 } from "lucide-react";
 import { toast } from "sonner@2.0.3";
 
+type Organization = {
+  id: number;
+  name: string;
+  ein: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  tax_exempt_status?: string | null;
+};
+
+const splitName = (name: string) => {
+  const [firstName = "", ...rest] = name.split(" ").filter(Boolean);
+  return { firstName, lastName: rest.join(" ") };
+};
+
 export function ProfilePage() {
   const currentUser = authService.getCurrentUser();
+  const initialName = currentUser?.name ?? "";
+  const { firstName: initialFirstName, lastName: initialLastName } = splitName(initialName);
   const [personalInfo, setPersonalInfo] = useState({
-    firstName: currentUser?.name.split(' ')[0] || "Sarah",
-    lastName: currentUser?.name.split(' ')[1] || "Johnson",
+    firstName: initialFirstName || "Sarah",
+    lastName: initialLastName || "Johnson",
     email: currentUser?.email || "sarah.johnson@nonprofit.org",
   });
+  const [organizationId, setOrganizationId] = useState<number | null>(
+    currentUser?.organization_id ?? null
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingPersonal, setIsSavingPersonal] = useState(false);
+  const [isSavingOrganization, setIsSavingOrganization] = useState(false);
 
   const [organizationInfo, setOrganizationInfo] = useState({
-    organizationName: currentUser?.organization || "Community Hope Foundation",
+    organizationName: "Community Hope Foundation",
     ein: "XX-XXXXXXX",
     organizationType: "501c3",
     address: "123 Main Street, Suite 400",
@@ -39,13 +66,136 @@ export function ProfilePage() {
 
   const handleSavePersonalInfo = (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success("Personal information updated");
+    const updateProfile = async () => {
+      try {
+        setIsSavingPersonal(true);
+        const name = `${personalInfo.firstName} ${personalInfo.lastName}`.trim();
+        const response = await apiClient.put<{ user: User }>(
+          "/users/me",
+          {
+            name,
+            email: personalInfo.email,
+          }
+        );
+        if (response.user) {
+          authService.updateCurrentUser(response.user);
+        }
+        toast.success("Personal information updated");
+      } catch (error) {
+        const message = authService.isApiError(error)
+          ? error.message
+          : "Failed to update personal information";
+        toast.error(message);
+      } finally {
+        setIsSavingPersonal(false);
+      }
+    };
+    void updateProfile();
   };
 
   const handleSaveOrganization = (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success("Organization details updated");
+    if (!organizationId) {
+      toast.error("No organization is linked to this account.");
+      return;
+    }
+
+    const updateOrganization = async () => {
+      try {
+        setIsSavingOrganization(true);
+        const response = await apiClient.put<{ organization: Organization }>(
+          `/organizations/${organizationId}`,
+          {
+            name: organizationInfo.organizationName,
+            ein: organizationInfo.ein,
+            address: organizationInfo.address,
+            city: organizationInfo.city,
+            state: organizationInfo.state,
+            zip_code: organizationInfo.zipCode,
+            tax_exempt_status: organizationInfo.organizationType,
+          }
+        );
+        if (response.organization) {
+          setOrganizationInfo((prev) => ({
+            ...prev,
+            organizationName: response.organization.name ?? prev.organizationName,
+            ein: response.organization.ein ?? prev.ein,
+            address: response.organization.address ?? prev.address,
+            city: response.organization.city ?? prev.city,
+            state: response.organization.state ?? prev.state,
+            zipCode: response.organization.zip_code ?? prev.zipCode,
+            organizationType:
+              response.organization.tax_exempt_status ?? prev.organizationType,
+          }));
+        }
+        toast.success("Organization details updated");
+      } catch (error) {
+        const message = authService.isApiError(error)
+          ? error.message
+          : "Failed to update organization details";
+        toast.error(message);
+      } finally {
+        setIsSavingOrganization(false);
+      }
+    };
+    void updateOrganization();
   };
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadProfile = async () => {
+      try {
+        setIsLoading(true);
+        const user = await authService.fetchCurrentUser();
+        if (!isMounted) return;
+
+        const { firstName, lastName } = splitName(user.name ?? "");
+        setPersonalInfo((prev) => ({
+          ...prev,
+          firstName: firstName || prev.firstName,
+          lastName: lastName || prev.lastName,
+          email: user.email ?? prev.email,
+        }));
+        setOrganizationId(user.organization_id ?? null);
+
+        if (user.organization_id) {
+          const orgResponse = await apiClient.get<{ organization: Organization }>(
+            `/organizations/${user.organization_id}`
+          );
+          if (!isMounted) return;
+          const org = orgResponse.organization;
+          if (org) {
+            setOrganizationInfo((prev) => ({
+              ...prev,
+              organizationName: org.name ?? prev.organizationName,
+              ein: org.ein ?? prev.ein,
+              organizationType: org.tax_exempt_status ?? prev.organizationType,
+              address: org.address ?? prev.address,
+              city: org.city ?? prev.city,
+              state: org.state ?? prev.state,
+              zipCode: org.zip_code ?? prev.zipCode,
+            }));
+          }
+        }
+      } catch (error) {
+        if (!isMounted) return;
+        const message = authService.isApiError(error)
+          ? error.message
+          : "Failed to load profile data";
+        toast.error(message);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -106,9 +256,10 @@ export function ProfilePage() {
           <div className="pt-6 border-t border-gray-200">
             <button
               type="submit"
+              disabled={isSavingPersonal || isLoading}
               className="px-10 h-12 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Save Changes
+              {isSavingPersonal ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </form>
@@ -237,9 +388,10 @@ export function ProfilePage() {
           <div className="pt-6 border-t border-gray-200">
             <button
               type="submit"
+              disabled={isSavingOrganization || isLoading}
               className="px-10 h-12 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Update Organization
+              {isSavingOrganization ? "Updating..." : "Update Organization"}
             </button>
           </div>
         </form>
