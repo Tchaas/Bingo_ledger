@@ -2,6 +2,7 @@ import { apiClient, ApiError } from "./api";
 import {
   clearAuthStorage,
   getAccessToken,
+  getAuthStorageType,
   getStoredUser,
   setAuthTokens,
   setStoredUser,
@@ -72,6 +73,22 @@ class AuthService {
   logout(): void {
     this.currentUser = null;
     clearAuthStorage();
+  }
+
+  updateCurrentUser(user: User | null): void {
+    this.currentUser = user;
+    const storageType = getAuthStorageType();
+    if (user && storageType) {
+      setStoredUser(user, storageType === "local");
+    } else if (!user) {
+      clearAuthStorage();
+    }
+  }
+
+  async fetchCurrentUser(): Promise<User> {
+    const response = await apiClient.get<{ user: User }>("/users/me");
+    this.updateCurrentUser(response.user);
+    return response.user;
   }
 
   getCurrentUser(): User | null {
