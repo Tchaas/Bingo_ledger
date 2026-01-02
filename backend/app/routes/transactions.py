@@ -8,10 +8,18 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, request, jsonify
-from sqlalchemy import or_
 
 from app import db
 from app.models import Transaction, Account
+from app.services.transactions_service import (
+    parse_date as service_parse_date,
+    parse_decimal as service_parse_decimal,
+    build_transactions_query,
+    apply_sort,
+    paginate_transactions,
+    calculate_totals,
+    calculate_running_balances
+)
 
 transactions_bp = Blueprint('transactions', __name__)
 
@@ -75,84 +83,36 @@ def _generate_transaction_id(organization_id):
     return f'{prefix}{next_number:03d}'
 
 
-def _calculate_running_balances(query):
-    running_balance = Decimal('0')
-    balances = {}
-    for transaction in query.order_by(None).order_by(Transaction.date.asc(), Transaction.id.asc()).all():
-        if transaction.debit:
-            running_balance += Decimal(transaction.debit)
-        if transaction.credit:
-            running_balance -= Decimal(transaction.credit)
-        balances[transaction.id] = float(running_balance)
-    return balances
-
-
 @transactions_bp.route('/', methods=['GET'])
 def list_transactions():
     """List all transactions with optional filtering."""
-    query = Transaction.query
+    filters = {
+        'organization_id': request.args.get('organization_id', type=int),
+        'account_id': request.args.get('account_id', type=int),
+        'category_id': request.args.get('category_id'),
+        'status': request.args.get('status'),
+        'search': request.args.get('search'),
+        'year': request.args.get('year', type=int),
+        'month': request.args.get('month', type=int),
+        'start_date': service_parse_date(request.args.get('start_date')),
+        'end_date': service_parse_date(request.args.get('end_date')),
+        'type': request.args.get('type'),
+        'min_amount': service_parse_decimal(request.args.get('min_amount')),
+        'max_amount': service_parse_decimal(request.args.get('max_amount'))
+    }
 
-    organization_id = request.args.get('organization_id', type=int)
-    account_id = request.args.get('account_id', type=int)
-    category_id = request.args.get('category_id')
-    status = request.args.get('status')
-    search = request.args.get('search')
-    year = request.args.get('year', type=int)
-    month = request.args.get('month', type=int)
-    start_date = _parse_date(request.args.get('start_date'))
-    end_date = _parse_date(request.args.get('end_date'))
-    transaction_type = request.args.get('type')
-
-    if organization_id:
-        query = query.filter(Transaction.organization_id == organization_id)
-    if account_id:
-        query = query.filter(Transaction.account_id == account_id)
-    if category_id:
-        query = query.filter(Transaction.category_id == category_id)
-    if status:
-        query = query.filter(Transaction.status == status)
-    if search:
-        like_term = f'%{search}%'
-        query = query.filter(
-            or_(
-                Transaction.description.ilike(like_term),
-                Transaction.transaction_id.ilike(like_term)
-            )
-        )
-    if year:
-        query = query.filter(db.extract('year', Transaction.date) == year)
-    if month:
-        query = query.filter(db.extract('month', Transaction.date) == month)
-    if start_date:
-        query = query.filter(Transaction.date >= start_date)
-    if end_date:
-        query = query.filter(Transaction.date <= end_date)
-    if transaction_type == 'debit':
-        query = query.filter(Transaction.debit.isnot(None))
-    if transaction_type == 'credit':
-        query = query.filter(Transaction.credit.isnot(None))
-
-    base_query = query
+    base_query = build_transactions_query(filters)
 
     sort_by = request.args.get('sort_by', 'date')
     sort_dir = request.args.get('sort_dir', 'desc')
-    sort_map = {
-        'date': Transaction.date,
-        'transaction_id': Transaction.transaction_id,
-        'created_at': Transaction.created_at,
-        'updated_at': Transaction.updated_at
-    }
-    sort_column = sort_map.get(sort_by, Transaction.date)
-    if sort_dir == 'asc':
-        query = query.order_by(sort_column.asc(), Transaction.id.asc())
-    else:
-        query = query.order_by(sort_column.desc(), Transaction.id.desc())
+    query = apply_sort(base_query, sort_by=sort_by, sort_dir=sort_dir)
 
     page = max(request.args.get('page', default=1, type=int), 1)
     per_page = min(max(request.args.get('per_page', default=50, type=int), 1), 200)
 
-    balances = _calculate_running_balances(base_query)
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    balances = calculate_running_balances(base_query)
+    pagination = paginate_transactions(query, page=page, per_page=per_page)
+    totals = calculate_totals(base_query)
 
     transactions = []
     for transaction in pagination.items:
@@ -165,7 +125,8 @@ def list_transactions():
         'transactions': transactions,
         'total': pagination.total,
         'page': page,
-        'per_page': per_page
+        'per_page': per_page,
+        'totals': totals
     }), 200
 
 
@@ -270,6 +231,38 @@ def delete_transaction(transaction_id):
     db.session.commit()
 
     return jsonify({'message': 'Transaction deleted'}), 200
+
+
+@transactions_bp.route('/bulk-recategorize', methods=['POST', 'PATCH'])
+def bulk_recategorize():
+    """Bulk update transaction categories."""
+    payload = request.get_json(silent=True) or {}
+    transaction_ids = payload.get('transaction_ids') or payload.get('transactionIds')
+    category_id = payload.get('category_id') or payload.get('categoryId')
+    subcategory = payload.get('subcategory')
+    status = payload.get('status')
+
+    if not transaction_ids or not isinstance(transaction_ids, list):
+        return jsonify({'message': 'transaction_ids must be a non-empty list'}), 400
+
+    updates = {}
+    if 'category_id' in payload or 'categoryId' in payload:
+        updates['category_id'] = category_id
+    if 'subcategory' in payload:
+        updates['subcategory'] = subcategory
+    if 'status' in payload:
+        updates['status'] = status
+
+    if not updates:
+        return jsonify({'message': 'No updates provided'}), 400
+
+    updated = (
+        Transaction.query.filter(Transaction.id.in_(transaction_ids))
+        .update(updates, synchronize_session='fetch')
+    )
+    db.session.commit()
+
+    return jsonify({'message': 'Transactions updated', 'updated': updated}), 200
 
 
 @transactions_bp.route('/import-csv', methods=['POST'])
