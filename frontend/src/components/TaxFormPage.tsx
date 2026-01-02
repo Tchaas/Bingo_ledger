@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileText, Save, Download } from "lucide-react";
 import { toast } from "sonner@2.0.3";
+import { ApiError, apiClient } from "../utils/api";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
 export function TaxFormPage() {
   const [formData, setFormData] = useState({
@@ -54,6 +57,58 @@ export function TaxFormPage() {
     endingDate: "2024-12-31",
     dba: "",
   });
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadForm990 = async () => {
+      setIsLoading(true);
+      setLoadError(null);
+      setValidationErrors({});
+      try {
+        const response = await apiClient.get<{
+          tax_year: number;
+          data: Record<string, string>;
+        }>(`/form990/${formData.taxYear}`);
+        if (!isActive) return;
+        if (response?.data) {
+          setFormData((prev) => ({
+            ...prev,
+            ...response.data,
+            taxYear: String(response.tax_year ?? prev.taxYear),
+          }));
+        }
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          if (isActive) {
+            setLoadError(null);
+          }
+          return;
+        }
+        if (isActive) {
+          setLoadError(error instanceof Error ? error.message : "Unable to load form data.");
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadForm990();
+
+    return () => {
+      isActive = false;
+    };
+  }, [formData.taxYear]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
@@ -62,12 +117,89 @@ export function TaxFormPage() {
     });
   };
 
-  const handleSaveDraft = () => {
-    toast.success("Draft saved successfully");
+  const handleSaveDraft = async () => {
+    setSaveError(null);
+    setValidationErrors({});
+    setIsValidating(true);
+    try {
+      await apiClient.post("/form990/validate", {
+        tax_year: Number(formData.taxYear),
+        data: formData,
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.data && typeof error.data === "object") {
+        const apiErrors = (error.data as { errors?: Record<string, string> }).errors;
+        if (apiErrors) {
+          setValidationErrors(apiErrors);
+        }
+      }
+      setSaveError(error instanceof Error ? error.message : "Validation failed.");
+      setIsValidating(false);
+      return;
+    } finally {
+      setIsValidating(false);
+    }
+
+    setIsSaving(true);
+    try {
+      await apiClient.post("/form990", {
+        tax_year: Number(formData.taxYear),
+        data: formData,
+        status: "draft",
+      });
+      toast.success("Draft saved successfully");
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Unable to save draft.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleGenerateForm = () => {
-    toast.success("Form 990 generated successfully");
+  const handleGenerateForm = async () => {
+    setGenerateError(null);
+    setIsGenerating(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/form990/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tax_year: Number(formData.taxYear),
+          data: formData,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = response.statusText;
+        try {
+          const errorData = (await response.json()) as { message?: string };
+          if (errorData?.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (error) {
+          // ignore parse errors
+        }
+        throw new Error(errorMessage || "Unable to generate form.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const contentDisposition = response.headers.get("content-disposition");
+      const filenameMatch = contentDisposition?.match(/filename="?([^"]+)"?/i);
+      link.href = url;
+      link.download = filenameMatch?.[1] ?? `form990-${formData.taxYear}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Form 990 generated successfully");
+    } catch (error) {
+      setGenerateError(error instanceof Error ? error.message : "Unable to generate form.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -83,6 +215,7 @@ export function TaxFormPage() {
             value={formData.taxYear}
             onChange={handleChange}
             name="taxYear"
+            disabled={isLoading}
             className="h-10 px-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
           >
             <option value="2024">Tax Year 2024</option>
@@ -91,20 +224,53 @@ export function TaxFormPage() {
           </select>
           <button
             onClick={handleSaveDraft}
-            className="flex items-center gap-2 px-4 h-10 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+            disabled={isSaving || isValidating}
+            className="flex items-center gap-2 px-4 h-10 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Save className="size-4" />
-            Save Draft
+            {isValidating ? "Validating..." : isSaving ? "Saving..." : "Save Draft"}
           </button>
           <button
             onClick={handleGenerateForm}
-            className="flex items-center gap-2 px-6 h-10 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            disabled={isGenerating}
+            className="flex items-center gap-2 px-6 h-10 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Download className="size-4" />
-            Generate Form
+            {isGenerating ? "Generating..." : "Generate Form"}
           </button>
         </div>
       </div>
+
+      {isLoading && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          Loading saved Form 990 data...
+        </div>
+      )}
+
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
+
+      {(saveError || generateError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {saveError ?? generateError}
+        </div>
+      )}
+
+      {Object.keys(validationErrors).length > 0 && (
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+          <p className="font-medium mb-2">Please address the following before saving:</p>
+          <ul className="list-disc list-inside space-y-1">
+            {Object.entries(validationErrors).map(([field, message]) => (
+              <li key={field}>
+                {field}: {message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Progress indicator */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
