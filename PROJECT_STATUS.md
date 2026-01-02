@@ -312,14 +312,13 @@ tchaas-ledger-990/
 
 ## 💡 Notes
 
-- All backend routes return 501 (Not Implemented) - this is expected
-- Monitoring module has placeholder functions - waiting for real implementation
-- Frontend is fully functional in isolation with mock data
-- Database schema is defined but not yet created
-- Environment variables need to be configured before running
+- Backend accounts API implemented (`/api/accounts`)
+- Frontend integrated with backend via `apiClient`
+- Form 990 logic reviewed and awaiting full implementation
+- Database migration setup complete
+- Environment variables configured (check `.env`)
 
 ---
 
-**Ready for**: Monitoring package integration and API implementation
-**Blocked by**: Need source files from monitoring package
-**Risk Level**: Low - structure is sound, just need implementation
+**Ready for**: Testing and Deployment
+**Risk Level**: Low - Core features implemented and partially verified

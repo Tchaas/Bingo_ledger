@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Plus, Search, TrendingDown, TrendingUp, Shuffle, Download, Printer, Edit, Trash2, Info, X, ChevronDown, ChevronUp, Lightbulb, AlertTriangle, CheckCircle, FileText, Tag, Minus } from "lucide-react";
-import { toast } from "sonner@2.0.3";
+import { toast } from "sonner";
 import { FORM_990_CATEGORIES, getCategoryById, suggestCategory, type Category } from "../utils/form990Categories";
 import { BulkRecategorizeModal } from "./BulkRecategorizeModal";
 import { BulkSuccessToast } from "./BulkSuccessToast";
+import { apiClient } from "../utils/api";
 
 interface Transaction {
   id: string;
@@ -60,7 +61,7 @@ export function LedgerPage() {
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkConfirmed, setBulkConfirmed] = useState(false);
   const [showTransactionPreview, setShowTransactionPreview] = useState(false);
-  
+
   // Undo state
   const [lastBulkAction, setLastBulkAction] = useState<{
     transactionIds: string[];
@@ -140,11 +141,9 @@ export function LedgerPage() {
     setListError(null);
     try {
       const params = buildQueryParams();
-      const response = await fetch(`/api/transactions?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error("Unable to load transactions.");
-      }
-      const data = await response.json();
+      const data = await apiClient.get<{ transactions: TransactionResponse[] }>(
+        `/transactions?${params.toString()}`
+      );
       setTransactions((data.transactions || []).map(mapTransaction));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load transactions.";
@@ -179,7 +178,7 @@ export function LedgerPage() {
 
   const handleDescriptionChange = (value: string) => {
     setFormData({ ...formData, description: value });
-    
+
     // Suggest category based on description
     if (value.length > 3) {
       const suggestion = suggestCategory(value);
@@ -192,9 +191,9 @@ export function LedgerPage() {
   const handleCategoryChange = (categoryId: string) => {
     const category = getCategoryById(categoryId);
     const newType = category ? (category.type === "revenue" ? "revenue" : "expense") : "revenue";
-    
-    setFormData({ 
-      ...formData, 
+
+    setFormData({
+      ...formData,
       categoryId,
       subcategory: "",
       additionalFields: {},
@@ -229,27 +228,17 @@ export function LedgerPage() {
     setCreateLoading(true);
     setCreateError(null);
     try {
-      const response = await fetch("/api/transactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          transaction_id: generateTransactionId(),
-          date: formData.date,
-          description: formData.description,
-          category_id: formData.categoryId,
-          subcategory: formData.subcategory || null,
-          debit: formData.type === "expense" ? parseFloat(formData.amount) : null,
-          credit: formData.type === "revenue" ? parseFloat(formData.amount) : null,
-          status: "complete",
-          additional_fields: formData.additionalFields
-        })
+      await apiClient.post("/transactions", {
+        transaction_id: generateTransactionId(),
+        date: formData.date,
+        description: formData.description,
+        category_id: formData.categoryId,
+        subcategory: formData.subcategory || null,
+        debit: formData.type === "expense" ? parseFloat(formData.amount) : null,
+        credit: formData.type === "revenue" ? parseFloat(formData.amount) : null,
+        status: "complete",
+        additional_fields: formData.additionalFields
       });
-      if (!response.ok) {
-        throw new Error("Unable to add transaction.");
-      }
-      await response.json();
       setShowAddModal(false);
       await fetchTransactions();
       toast.success("Transaction added successfully");
@@ -267,7 +256,7 @@ export function LedgerPage() {
     if (transaction) {
       const category = transaction.categoryId ? getCategoryById(transaction.categoryId) : undefined;
       const transactionType = category ? (category.type === "revenue" ? "revenue" : "expense") : (transaction.credit ? "revenue" : "expense");
-      
+
       setEditingTransaction(transaction);
       setUpdateError(null);
       setFormData({
@@ -295,26 +284,16 @@ export function LedgerPage() {
     setUpdateLoading(true);
     setUpdateError(null);
     try {
-      const response = await fetch(`/api/transactions/${editingTransaction.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          date: formData.date,
-          description: formData.description,
-          category_id: formData.categoryId,
-          subcategory: formData.subcategory || null,
-          debit: formData.type === "expense" ? parseFloat(formData.amount) : null,
-          credit: formData.type === "revenue" ? parseFloat(formData.amount) : null,
-          additional_fields: formData.additionalFields,
-          status: "complete"
-        })
+      await apiClient.put(`/transactions/${editingTransaction.id}`, {
+        date: formData.date,
+        description: formData.description,
+        category_id: formData.categoryId,
+        subcategory: formData.subcategory || null,
+        debit: formData.type === "expense" ? parseFloat(formData.amount) : null,
+        credit: formData.type === "revenue" ? parseFloat(formData.amount) : null,
+        additional_fields: formData.additionalFields,
+        status: "complete"
       });
-      if (!response.ok) {
-        throw new Error("Unable to update transaction.");
-      }
-      await response.json();
       setShowEditModal(false);
       setEditingTransaction(null);
       await fetchTransactions();
@@ -332,13 +311,7 @@ export function LedgerPage() {
     setDeleteLoadingId(id);
     setDeleteError(null);
     try {
-      const response = await fetch(`/api/transactions/${id}`, {
-        method: "DELETE"
-      });
-      if (!response.ok) {
-        throw new Error("Unable to delete transaction.");
-      }
-      await response.json();
+      await apiClient.delete(`/transactions/${id}`);
       await fetchTransactions();
       toast.success("Transaction deleted successfully");
     } catch (error) {
@@ -404,20 +377,11 @@ export function LedgerPage() {
     try {
       await Promise.all(
         selectedTransactionIds.map(async (transactionId) => {
-          const response = await fetch(`/api/transactions/${transactionId}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              category_id: bulkCategory,
-              subcategory: "",
-              status: "needs-review"
-            })
+          await apiClient.put(`/transactions/${transactionId}`, {
+            category_id: bulkCategory,
+            subcategory: "",
+            status: "needs-review"
           });
-          if (!response.ok) {
-            throw new Error("Unable to recategorize transactions.");
-          }
         })
       );
       setLastBulkAction({
@@ -444,20 +408,11 @@ export function LedgerPage() {
       await Promise.all(
         lastBulkAction.transactionIds.map(async (transactionId) => {
           const previousCategory = lastBulkAction.oldCategories[transactionId];
-          const response = await fetch(`/api/transactions/${transactionId}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              category_id: previousCategory?.categoryId || null,
-              subcategory: previousCategory?.subcategory || null,
-              status: "complete"
-            })
+          await apiClient.put(`/transactions/${transactionId}`, {
+            category_id: previousCategory?.categoryId || null,
+            subcategory: previousCategory?.subcategory || null,
+            status: "complete"
           });
-          if (!response.ok) {
-            throw new Error("Unable to undo bulk action.");
-          }
         })
       );
       setLastBulkAction(null);
@@ -500,7 +455,7 @@ export function LedgerPage() {
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-gray-900">Filters</h2>
-          <button 
+          <button
             onClick={() => {
               setYearFilter("all");
               setMonthFilter("all");
@@ -514,7 +469,7 @@ export function LedgerPage() {
             Clear All
           </button>
         </div>
-        
+
         <div className="grid grid-cols-5 gap-6 mb-4">
           <div>
             <label className="block text-gray-700 mb-2">Year</label>
@@ -596,31 +551,28 @@ export function LedgerPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setTypeFilter(typeFilter === "debit" ? "all" : "debit")}
-            className={`px-3 py-1 rounded-full text-sm transition-colors ${
-              typeFilter === "debit"
-                ? "bg-green-100 text-green-700"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+            className={`px-3 py-1 rounded-full text-sm transition-colors ${typeFilter === "debit"
+              ? "bg-green-100 text-green-700"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
           >
             Debits Only
           </button>
           <button
             onClick={() => setTypeFilter(typeFilter === "credit" ? "all" : "credit")}
-            className={`px-3 py-1 rounded-full text-sm transition-colors ${
-              typeFilter === "credit"
-                ? "bg-red-100 text-red-700"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+            className={`px-3 py-1 rounded-full text-sm transition-colors ${typeFilter === "credit"
+              ? "bg-red-100 text-red-700"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
           >
             Credits Only
           </button>
           <button
             onClick={() => setStatusFilter(statusFilter === "needs-review" ? "all" : "needs-review")}
-            className={`px-3 py-1 rounded-full text-sm transition-colors ${
-              statusFilter === "needs-review"
-                ? "bg-amber-100 text-amber-700"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+            className={`px-3 py-1 rounded-full text-sm transition-colors ${statusFilter === "needs-review"
+              ? "bg-amber-100 text-amber-700"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
           >
             Needs Review
           </button>
@@ -751,76 +703,75 @@ export function LedgerPage() {
                 </tr>
               ) : (
                 transactions.map((transaction) => {
-                const category = transaction.categoryId ? getCategoryById(transaction.categoryId) : undefined;
-                const statusIcon = transaction.status === "complete" ? CheckCircle : transaction.status === "needs-review" ? AlertTriangle : Info;
-                const StatusIcon = statusIcon;
-                const isExpense = category?.type === "expense";
-                const isRevenue = category?.type === "revenue";
-                
-                return (
-                  <tr key={transaction.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-gray-900">{new Date(transaction.date).toLocaleDateString()}</td>
-                    <td className="px-6 py-4 text-gray-900">{transaction.transactionId}</td>
-                    <td className="px-6 py-4 text-gray-900">{transaction.description}</td>
-                    <td className="px-6 py-4">
-                      {category ? (
-                        <div className="group relative">
-                          <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full ${
-                            category.type === "revenue" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                          }`}>
-                            <Tag className="size-3" />
-                            <span className="text-sm">{category.name}</span>
-                            {transaction.status === "complete" && <CheckCircle className="size-3" />}
-                          </div>
-                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-3 bg-gray-900 text-white text-sm rounded-lg shadow-lg">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1.5">
-                                <FileText className="size-3" />
-                                <span>{category.form990Reference}</span>
+                  const category = transaction.categoryId ? getCategoryById(transaction.categoryId) : undefined;
+                  const statusIcon = transaction.status === "complete" ? CheckCircle : transaction.status === "needs-review" ? AlertTriangle : Info;
+                  const StatusIcon = statusIcon;
+                  const isExpense = category?.type === "expense";
+                  const isRevenue = category?.type === "revenue";
+
+                  return (
+                    <tr key={transaction.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 text-gray-900">{new Date(transaction.date).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-gray-900">{transaction.transactionId}</td>
+                      <td className="px-6 py-4 text-gray-900">{transaction.description}</td>
+                      <td className="px-6 py-4">
+                        {category ? (
+                          <div className="group relative">
+                            <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full ${category.type === "revenue" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                              }`}>
+                              <Tag className="size-3" />
+                              <span className="text-sm">{category.name}</span>
+                              {transaction.status === "complete" && <CheckCircle className="size-3" />}
+                            </div>
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-3 bg-gray-900 text-white text-sm rounded-lg shadow-lg">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <FileText className="size-3" />
+                                  <span>{category.form990Reference}</span>
+                                </div>
+                                <p className="text-gray-300">{category.description}</p>
+                                <p className="text-xs text-gray-400 mt-2">
+                                  Type: {category.type === "revenue" ? "Revenue" : "Expense"}
+                                </p>
                               </div>
-                              <p className="text-gray-300">{category.description}</p>
-                              <p className="text-xs text-gray-400 mt-2">
-                                Type: {category.type === "revenue" ? "Revenue" : "Expense"}
-                              </p>
                             </div>
                           </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-100 text-gray-600 text-sm">
+                            Uncategorized
+                          </span>
+                        )}
+                      </td>
+                      <td className={`px-6 py-4 ${isExpense ? "text-red-600" : "text-gray-400"}`}>
+                        {transaction.debit ? `$${transaction.debit.toFixed(2)}` : "-"}
+                      </td>
+                      <td className={`px-6 py-4 ${isRevenue ? "text-green-600" : "text-gray-400"}`}>
+                        {transaction.credit ? `$${transaction.credit.toFixed(2)}` : "-"}
+                      </td>
+                      <td className={`px-6 py-4 ${transaction.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        ${Math.abs(transaction.balance).toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleEdit(transaction.id)}
+                            className="p-1 text-blue-600 hover:text-blue-700"
+                            disabled={updateLoading || deleteLoadingId === transaction.id}
+                          >
+                            <Edit className="size-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(transaction.id)}
+                            className="p-1 text-red-600 hover:text-red-700"
+                            disabled={deleteLoadingId === transaction.id}
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
                         </div>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-100 text-gray-600 text-sm">
-                          Uncategorized
-                        </span>
-                      )}
-                    </td>
-                    <td className={`px-6 py-4 ${isExpense ? "text-red-600" : "text-gray-400"}`}>
-                      {transaction.debit ? `$${transaction.debit.toFixed(2)}` : "-"}
-                    </td>
-                    <td className={`px-6 py-4 ${isRevenue ? "text-green-600" : "text-gray-400"}`}>
-                      {transaction.credit ? `$${transaction.credit.toFixed(2)}` : "-"}
-                    </td>
-                    <td className={`px-6 py-4 ${transaction.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      ${Math.abs(transaction.balance).toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleEdit(transaction.id)}
-                          className="p-1 text-blue-600 hover:text-blue-700"
-                          disabled={updateLoading || deleteLoadingId === transaction.id}
-                        >
-                          <Edit className="size-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(transaction.id)}
-                          className="p-1 text-red-600 hover:text-red-700"
-                          disabled={deleteLoadingId === transaction.id}
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -895,7 +846,7 @@ export function LedgerPage() {
                 </button>
               </div>
             </div>
-            
+
             <div className="p-8">
               <p className="text-gray-600 mb-8">
                 Accounts are increased and decreased with a debit or credit. Understanding the debit and credit system is essential for accurate bookkeeping.
@@ -908,7 +859,7 @@ export function LedgerPage() {
                     <div className="mb-6 pb-4 border-b-4 border-green-600">
                       <h3 className="text-green-600">DEBIT</h3>
                     </div>
-                    
+
                     <div className="space-y-6">
                       <div className="flex items-center gap-3">
                         <div className="text-green-600">
@@ -965,7 +916,7 @@ export function LedgerPage() {
                     <div className="mb-6 pb-4 border-b-4 border-red-600">
                       <h3 className="text-red-600">CREDIT</h3>
                     </div>
-                    
+
                     <div className="space-y-6">
                       <div className="flex items-center gap-3">
                         <div className="text-red-600">
@@ -1117,7 +1068,7 @@ function TransactionModal({
             </button>
           </div>
         </div>
-        
+
         <form onSubmit={onSubmit} className="p-6 space-y-4">
           {/* Transaction ID */}
           <div>
@@ -1229,7 +1180,7 @@ function TransactionModal({
                   <ChevronUp className="size-4" />
                 </button>
               </div>
-              
+
               <div>
                 <p className="text-sm text-gray-600 mb-2">{selectedCategory.form990Reference}</p>
                 <p className="text-sm text-gray-700">{selectedCategory.description}</p>

@@ -1,0 +1,36 @@
+# Flask Web Framework
+Flask>=2.0.0
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-CORS
+Flask-JWT-Extended
+Flask-Bcrypt
+
+# Database
+# psycopg2-binary # Removed for sqlite testing
+SQLAlchemy
+
+# Monitoring
+# grpcio # Removed
+# grpcio-status # Removed
+# google-cloud-monitoring # Removed
+prometheus-client
+
+# Environment & Configuration
+python-dotenv
+
+# Data Processing
+pandas
+openpyxl
+
+# PDF Generation
+reportlab
+
+# Testing
+pytest
+pytest-flask
+pytest-cov
+
+# Development
+black
+flake8

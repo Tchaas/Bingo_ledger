@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api";
 
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
