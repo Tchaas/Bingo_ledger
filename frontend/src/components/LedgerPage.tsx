@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Plus, Search, TrendingDown, TrendingUp, Shuffle, Download, Printer, Edit, Trash2, Info, X, ChevronDown, ChevronUp, Lightbulb, AlertTriangle, CheckCircle, FileText, Tag, Minus } from "lucide-react";
 import { toast } from "sonner@2.0.3";
 import { FORM_990_CATEGORIES, getCategoryById, suggestCategory, type Category } from "../utils/form990Categories";
@@ -19,65 +19,22 @@ interface Transaction {
   status?: "complete" | "needs-review" | "incomplete";
 }
 
-const initialTransactions: Transaction[] = [
-  {
-    id: "1",
-    date: "2024-12-15",
-    transactionId: "TXN-2024-001",
-    description: "Office Supplies Purchase",
-    categoryId: "other-expenses",
-    subcategory: "Office Supplies",
-    debit: 450.00,
-    balance: 450.00,
-    status: "complete"
-  },
-  {
-    id: "2",
-    date: "2024-12-14",
-    transactionId: "TXN-2024-002",
-    description: "Client Payment Received",
-    categoryId: "program-service-revenue",
-    subcategory: "Program A",
-    credit: 2500.00,
-    balance: -2050.00,
-    status: "complete"
-  },
-  {
-    id: "3",
-    date: "2024-12-13",
-    transactionId: "TXN-2024-003",
-    description: "Monthly Rent Payment",
-    categoryId: "occupancy",
-    subcategory: "Rent",
-    debit: 1800.00,
-    balance: -250.00,
-    status: "complete"
-  },
-  {
-    id: "4",
-    date: "2024-12-12",
-    transactionId: "TXN-2024-004",
-    description: "Equipment Purchase",
-    categoryId: "other-expenses",
-    subcategory: "Office Supplies",
-    debit: 3200.00,
-    balance: 2950.00,
-    status: "complete"
-  },
-  {
-    id: "5",
-    date: "2024-12-11",
-    transactionId: "TXN-2024-005",
-    description: "Consulting Revenue",
-    categoryId: "program-service-revenue",
-    credit: 5000.00,
-    balance: -2050.00,
-    status: "complete"
-  },
-];
+interface TransactionResponse {
+  id: number;
+  transaction_id: string;
+  date: string;
+  description: string;
+  category_id?: string | null;
+  subcategory?: string | null;
+  debit?: number | null;
+  credit?: number | null;
+  balance?: number | null;
+  status?: "complete" | "needs-review" | "incomplete";
+  additional_fields?: Record<string, string> | null;
+}
 
 export function LedgerPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [yearFilter, setYearFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
@@ -88,6 +45,14 @@ export function LedgerPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Bulk selection state
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<string[]>([]);
@@ -143,15 +108,56 @@ export function LedgerPage() {
     return `TXN-${year}-${String(maxId + 1).padStart(3, "0")}`;
   };
 
-  // Recalculate balances for all transactions
-  const recalculateBalances = (txns: Transaction[]) => {
-    let runningBalance = 0;
-    return txns.map(t => {
-      if (t.debit) runningBalance += t.debit;
-      if (t.credit) runningBalance -= t.credit;
-      return { ...t, balance: runningBalance };
-    });
+  const mapTransaction = (transaction: TransactionResponse): Transaction => ({
+    id: String(transaction.id),
+    date: transaction.date,
+    transactionId: transaction.transaction_id,
+    description: transaction.description,
+    categoryId: transaction.category_id ?? undefined,
+    subcategory: transaction.subcategory ?? undefined,
+    debit: transaction.debit ?? undefined,
+    credit: transaction.credit ?? undefined,
+    balance: transaction.balance ?? 0,
+    status: transaction.status ?? "complete",
+    additionalFields: transaction.additional_fields ?? undefined
+  });
+
+  const buildQueryParams = () => {
+    const params = new URLSearchParams();
+    if (searchQuery) params.set("search", searchQuery);
+    if (categoryFilter !== "all") params.set("category_id", categoryFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (yearFilter !== "all") params.set("year", yearFilter);
+    if (monthFilter !== "all") params.set("month", monthFilter);
+    params.set("sort_by", "date");
+    params.set("sort_dir", "desc");
+    return params;
   };
+
+  const fetchTransactions = useCallback(async () => {
+    setListLoading(true);
+    setListError(null);
+    try {
+      const params = buildQueryParams();
+      const response = await fetch(`/api/transactions?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error("Unable to load transactions.");
+      }
+      const data = await response.json();
+      setTransactions((data.transactions || []).map(mapTransaction));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load transactions.";
+      setListError(message);
+      toast.error(message);
+    } finally {
+      setListLoading(false);
+    }
+  }, [searchQuery, categoryFilter, statusFilter, typeFilter, yearFilter, monthFilter]);
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
 
   const handleAddTransaction = () => {
     const today = new Date().toISOString().split("T")[0];
@@ -164,6 +170,7 @@ export function LedgerPage() {
       amount: "",
       additionalFields: {}
     });
+    setCreateError(null);
     setSuggestedCategory(null);
     setShowCategoryHelp(false);
     setShowWarning(true);
@@ -212,33 +219,47 @@ export function LedgerPage() {
     return category?.warning;
   };
 
-  const handleSubmitAdd = (e: React.FormEvent) => {
+  const handleSubmitAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.date || !formData.description || !formData.amount || !formData.categoryId) {
       toast.error("Please fill in all required fields");
       return;
     }
 
-    const newTransaction: Transaction = {
-      id: String(Date.now()),
-      date: formData.date,
-      transactionId: generateTransactionId(),
-      description: formData.description,
-      categoryId: formData.categoryId,
-      subcategory: formData.subcategory || undefined,
-      debit: formData.type === "expense" ? parseFloat(formData.amount) : undefined,
-      credit: formData.type === "revenue" ? parseFloat(formData.amount) : undefined,
-      balance: 0,
-      additionalFields: formData.additionalFields,
-      status: "complete"
-    };
-
-    const updatedTransactions = [...transactions, newTransaction].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-    setTransactions(recalculateBalances(updatedTransactions));
-    setShowAddModal(false);
-    toast.success("Transaction added successfully");
+    setCreateLoading(true);
+    setCreateError(null);
+    try {
+      const response = await fetch("/api/transactions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          transaction_id: generateTransactionId(),
+          date: formData.date,
+          description: formData.description,
+          category_id: formData.categoryId,
+          subcategory: formData.subcategory || null,
+          debit: formData.type === "expense" ? parseFloat(formData.amount) : null,
+          credit: formData.type === "revenue" ? parseFloat(formData.amount) : null,
+          status: "complete",
+          additional_fields: formData.additionalFields
+        })
+      });
+      if (!response.ok) {
+        throw new Error("Unable to add transaction.");
+      }
+      await response.json();
+      setShowAddModal(false);
+      await fetchTransactions();
+      toast.success("Transaction added successfully");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to add transaction.";
+      setCreateError(message);
+      toast.error(message);
+    } finally {
+      setCreateLoading(false);
+    }
   };
 
   const handleEdit = (id: string) => {
@@ -248,6 +269,7 @@ export function LedgerPage() {
       const transactionType = category ? (category.type === "revenue" ? "revenue" : "expense") : (transaction.credit ? "revenue" : "expense");
       
       setEditingTransaction(transaction);
+      setUpdateError(null);
       setFormData({
         date: transaction.date,
         description: transaction.description,
@@ -263,40 +285,69 @@ export function LedgerPage() {
     }
   };
 
-  const handleSubmitEdit = (e: React.FormEvent) => {
+  const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTransaction || !formData.date || !formData.description || !formData.amount || !formData.categoryId) {
       toast.error("Please fill in all required fields");
       return;
     }
 
-    const updatedTransactions = transactions.map(t => {
-      if (t.id === editingTransaction.id) {
-        return {
-          ...t,
+    setUpdateLoading(true);
+    setUpdateError(null);
+    try {
+      const response = await fetch(`/api/transactions/${editingTransaction.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
           date: formData.date,
           description: formData.description,
-          categoryId: formData.categoryId,
-          subcategory: formData.subcategory || undefined,
-          debit: formData.type === "expense" ? parseFloat(formData.amount) : undefined,
-          credit: formData.type === "revenue" ? parseFloat(formData.amount) : undefined,
-          additionalFields: formData.additionalFields,
-          status: "complete" as const
-        };
+          category_id: formData.categoryId,
+          subcategory: formData.subcategory || null,
+          debit: formData.type === "expense" ? parseFloat(formData.amount) : null,
+          credit: formData.type === "revenue" ? parseFloat(formData.amount) : null,
+          additional_fields: formData.additionalFields,
+          status: "complete"
+        })
+      });
+      if (!response.ok) {
+        throw new Error("Unable to update transaction.");
       }
-      return t;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    setTransactions(recalculateBalances(updatedTransactions));
-    setShowEditModal(false);
-    setEditingTransaction(null);
-    toast.success("Transaction updated successfully");
+      await response.json();
+      setShowEditModal(false);
+      setEditingTransaction(null);
+      await fetchTransactions();
+      toast.success("Transaction updated successfully");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update transaction.";
+      setUpdateError(message);
+      toast.error(message);
+    } finally {
+      setUpdateLoading(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    const updatedTransactions = transactions.filter(t => t.id !== id);
-    setTransactions(recalculateBalances(updatedTransactions));
-    toast.success("Transaction deleted successfully");
+  const handleDelete = async (id: string) => {
+    setDeleteLoadingId(id);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/transactions/${id}`, {
+        method: "DELETE"
+      });
+      if (!response.ok) {
+        throw new Error("Unable to delete transaction.");
+      }
+      await response.json();
+      await fetchTransactions();
+      toast.success("Transaction deleted successfully");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete transaction.";
+      setDeleteError(message);
+      toast.error(message);
+    } finally {
+      setDeleteLoadingId(null);
+    }
   };
 
   const handleExport = () => {
@@ -316,6 +367,10 @@ export function LedgerPage() {
 
   const selectedCategory = getSelectedCategory();
   const categoryWarning = getCategoryWarning();
+  const selectedTransactions = useMemo(
+    () => transactions.filter((transaction) => selectedTransactionIds.includes(transaction.id)),
+    [transactions, selectedTransactionIds]
+  );
 
   // Bulk recategorize
   const handleBulkRecategorize = () => {
@@ -330,58 +385,89 @@ export function LedgerPage() {
     setBulkCategory(categoryId);
   };
 
-  const handleBulkConfirm = () => {
+  const handleBulkConfirm = async () => {
     if (bulkCategory === "") {
       toast.error("Please select a category");
       return;
     }
 
     const oldCategories: Record<string, { categoryId?: string; subcategory?: string }> = {};
-    const updatedTransactions = transactions.map(t => {
-      if (selectedTransactionIds.includes(t.id)) {
-        oldCategories[t.id] = { categoryId: t.categoryId, subcategory: t.subcategory };
-        return {
-          ...t,
-          categoryId: bulkCategory,
-          subcategory: "",
-          status: "needs-review" as const
+    transactions.forEach((transaction) => {
+      if (selectedTransactionIds.includes(transaction.id)) {
+        oldCategories[transaction.id] = {
+          categoryId: transaction.categoryId,
+          subcategory: transaction.subcategory
         };
       }
-      return t;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    setTransactions(recalculateBalances(updatedTransactions));
-    setLastBulkAction({
-      transactionIds: selectedTransactionIds,
-      oldCategories,
-      newCategory: bulkCategory,
-      timestamp: Date.now()
     });
-    setUndoTimeRemaining(10);
-    setBulkConfirmed(true);
-    setShowBulkRecategorizeModal(false);
-    toast.success("Transactions recategorized successfully");
+
+    try {
+      await Promise.all(
+        selectedTransactionIds.map(async (transactionId) => {
+          const response = await fetch(`/api/transactions/${transactionId}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              category_id: bulkCategory,
+              subcategory: "",
+              status: "needs-review"
+            })
+          });
+          if (!response.ok) {
+            throw new Error("Unable to recategorize transactions.");
+          }
+        })
+      );
+      setLastBulkAction({
+        transactionIds: selectedTransactionIds,
+        oldCategories,
+        newCategory: bulkCategory,
+        timestamp: Date.now()
+      });
+      setUndoTimeRemaining(10);
+      setBulkConfirmed(true);
+      setShowBulkRecategorizeModal(false);
+      await fetchTransactions();
+      toast.success("Transactions recategorized successfully");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to recategorize transactions.";
+      toast.error(message);
+    }
   };
 
-  const handleUndoBulkAction = () => {
+  const handleUndoBulkAction = async () => {
     if (!lastBulkAction) return;
 
-    const updatedTransactions = transactions.map(t => {
-      if (lastBulkAction.transactionIds.includes(t.id)) {
-        return {
-          ...t,
-          categoryId: lastBulkAction.oldCategories[t.id]?.categoryId,
-          subcategory: lastBulkAction.oldCategories[t.id]?.subcategory,
-          status: "complete" as const
-        };
-      }
-      return t;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    setTransactions(recalculateBalances(updatedTransactions));
-    setLastBulkAction(null);
-    setUndoTimeRemaining(0);
-    toast.success("Bulk action undone");
+    try {
+      await Promise.all(
+        lastBulkAction.transactionIds.map(async (transactionId) => {
+          const previousCategory = lastBulkAction.oldCategories[transactionId];
+          const response = await fetch(`/api/transactions/${transactionId}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              category_id: previousCategory?.categoryId || null,
+              subcategory: previousCategory?.subcategory || null,
+              status: "complete"
+            })
+          });
+          if (!response.ok) {
+            throw new Error("Unable to undo bulk action.");
+          }
+        })
+      );
+      setLastBulkAction(null);
+      setUndoTimeRemaining(0);
+      await fetchTransactions();
+      toast.success("Bulk action undone");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to undo bulk action.";
+      toast.error(message);
+    }
   };
 
   useEffect(() => {
@@ -621,6 +707,11 @@ export function LedgerPage() {
               </button>
             </div>
           </div>
+          {(listError || deleteError) && (
+            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {listError || deleteError}
+            </div>
+          )}
         </div>
 
         <div className="overflow-x-auto">
@@ -646,7 +737,20 @@ export function LedgerPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {transactions.map((transaction) => {
+              {listLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-6 text-center text-gray-500">
+                    Loading transactions...
+                  </td>
+                </tr>
+              ) : transactions.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-6 text-center text-gray-500">
+                    No transactions found.
+                  </td>
+                </tr>
+              ) : (
+                transactions.map((transaction) => {
                 const category = transaction.categoryId ? getCategoryById(transaction.categoryId) : undefined;
                 const statusIcon = transaction.status === "complete" ? CheckCircle : transaction.status === "needs-review" ? AlertTriangle : Info;
                 const StatusIcon = statusIcon;
@@ -701,12 +805,14 @@ export function LedgerPage() {
                         <button
                           onClick={() => handleEdit(transaction.id)}
                           className="p-1 text-blue-600 hover:text-blue-700"
+                          disabled={updateLoading || deleteLoadingId === transaction.id}
                         >
                           <Edit className="size-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(transaction.id)}
                           className="p-1 text-red-600 hover:text-red-700"
+                          disabled={deleteLoadingId === transaction.id}
                         >
                           <Trash2 className="size-4" />
                         </button>
@@ -714,7 +820,8 @@ export function LedgerPage() {
                     </td>
                   </tr>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>
@@ -732,6 +839,8 @@ export function LedgerPage() {
           setFormData={setFormData}
           onSubmit={handleSubmitAdd}
           onClose={() => setShowAddModal(false)}
+          isSubmitting={createLoading}
+          errorMessage={createError}
           suggestedCategory={suggestedCategory}
           onUseSuggestion={handleUseSuggestion}
           onDescriptionChange={handleDescriptionChange}
@@ -757,6 +866,8 @@ export function LedgerPage() {
             setShowEditModal(false);
             setEditingTransaction(null);
           }}
+          isSubmitting={updateLoading}
+          errorMessage={updateError}
           onDescriptionChange={handleDescriptionChange}
           showCategoryHelp={showCategoryHelp}
           setShowCategoryHelp={setShowCategoryHelp}
@@ -924,8 +1035,11 @@ export function LedgerPage() {
       {/* Bulk Recategorize Modal */}
       {showBulkRecategorizeModal && (
         <BulkRecategorizeModal
-          transactionIds={selectedTransactionIds}
-          onCategoryChange={handleBulkCategoryChange}
+          selectedTransactions={selectedTransactions}
+          bulkCategory={bulkCategory}
+          setBulkCategory={handleBulkCategoryChange}
+          bulkConfirmed={bulkConfirmed}
+          setBulkConfirmed={setBulkConfirmed}
           onConfirm={handleBulkConfirm}
           onClose={() => setShowBulkRecategorizeModal(false)}
         />
@@ -934,10 +1048,13 @@ export function LedgerPage() {
       {/* Bulk Success Toast */}
       {bulkConfirmed && (
         <BulkSuccessToast
-          transactionIds={selectedTransactionIds}
-          newCategory={bulkCategory}
+          count={selectedTransactionIds.length}
+          oldCategoryId={lastBulkAction?.oldCategories[selectedTransactionIds[0]]?.categoryId}
+          newCategoryId={bulkCategory}
+          undoTimeRemaining={undoTimeRemaining}
           onUndo={handleUndoBulkAction}
-          timeRemaining={undoTimeRemaining}
+          onViewAuditLog={() => toast.info("Audit log would open here.")}
+          onClose={() => setBulkConfirmed(false)}
         />
       )}
     </div>
@@ -951,6 +1068,8 @@ interface TransactionModalProps {
   setFormData: (data: any) => void;
   onSubmit: (e: React.FormEvent) => void;
   onClose: () => void;
+  isSubmitting: boolean;
+  errorMessage?: string | null;
   suggestedCategory?: { category: Category; confidence: number } | null;
   onUseSuggestion?: () => void;
   onDescriptionChange: (value: string) => void;
@@ -970,6 +1089,8 @@ function TransactionModal({
   setFormData,
   onSubmit,
   onClose,
+  isSubmitting,
+  errorMessage,
   suggestedCategory,
   onUseSuggestion,
   onDescriptionChange,
@@ -1209,19 +1330,27 @@ function TransactionModal({
             </div>
           )}
 
+          {errorMessage && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+              {errorMessage}
+            </div>
+          )}
+
           <div className="flex items-center gap-3 pt-4">
             <button
               type="button"
               onClick={onClose}
               className="flex-1 h-10 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 h-10 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex-1 h-10 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400"
+              disabled={isSubmitting}
             >
-              {mode === "add" ? "Add Transaction" : "Save Changes"}
+              {isSubmitting ? "Saving..." : mode === "add" ? "Add Transaction" : "Save Changes"}
             </button>
           </div>
         </form>
