@@ -12,7 +12,7 @@ export function LoginPage() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!email || !password) {
@@ -21,15 +21,19 @@ export function LoginPage() {
     }
 
     try {
-      authService.login(email, password);
+      await authService.login(email, password, rememberMe);
       toast.success("Successfully logged in!");
       navigate("/app");
     } catch (error) {
-      toast.error("Login failed. Please try again.");
+      if (authService.isApiError(error)) {
+        toast.error(error.message || "Login failed. Please try again.");
+      } else {
+        toast.error("Login failed. Please try again.");
+      }
     }
   };
 
-  const handleForgotPassword = (e: React.FormEvent) => {
+  const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!resetEmail) {
@@ -38,11 +42,15 @@ export function LoginPage() {
     }
 
     try {
-      authService.resetPassword(resetEmail);
+      await authService.resetPassword(resetEmail);
       toast.success("Password reset email sent!");
       setShowForgotPassword(false);
     } catch (error) {
-      toast.error("Failed to send password reset email. Please try again.");
+      if (authService.isApiError(error)) {
+        toast.error(error.message || "Failed to send password reset email. Please try again.");
+      } else {
+        toast.error("Failed to send password reset email. Please try again.");
+      }
     }
   };
 

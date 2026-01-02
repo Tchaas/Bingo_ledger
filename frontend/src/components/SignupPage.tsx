@@ -21,7 +21,7 @@ export function SignupPage() {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name || !formData.email || !formData.password || !formData.organization) {
@@ -40,7 +40,7 @@ export function SignupPage() {
     }
 
     try {
-      authService.signup({
+      await authService.signup({
         name: formData.name,
         email: formData.email,
         password: formData.password,
@@ -49,7 +49,11 @@ export function SignupPage() {
       toast.success("Account created successfully!");
       navigate("/app");
     } catch (error) {
-      toast.error("Failed to create account. Please try again.");
+      if (authService.isApiError(error)) {
+        toast.error(error.message || "Failed to create account. Please try again.");
+      } else {
+        toast.error("Failed to create account. Please try again.");
+      }
     }
   };
 

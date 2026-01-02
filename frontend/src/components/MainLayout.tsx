@@ -7,8 +7,7 @@ export function MainLayout() {
   const location = useLocation();
   const user = authService.getCurrentUser();
 
-  // If not logged in, redirect to login
-  if (!user) {
+  if (!authService.isAuthenticated() || !user) {
     return <Navigate to="/" replace />;
   }
 
